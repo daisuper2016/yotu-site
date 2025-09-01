@@ -1,14 +1,18 @@
-// File: server.js (PHIÊN BẢN GỐC CHO RENDER)
+// File: server.js (PHIÊN BẢN CUỐI CÙNG CHO RENDER)
 import express from 'express';
 import 'dotenv/config';
 import fetch from 'node-fetch';
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import cors from 'cors'; // <<<<<<<<<<<<  1. THÊM DÒNG NÀY
 
 // --- CẤU HÌNH ---
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
+
+app.use(cors()); // <<<<<<<<<<<<  2. THÊM DÒNG NÀY
+
 const PORT = process.env.PORT || 3000;
 const API_KEY = process.env.YT_API_KEY;
 const CHANNEL_ID = process.env.CHANNEL_ID;
