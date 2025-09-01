@@ -1,0 +1,16 @@
+{
+  "name": "yotu-site",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "update-data": "node server.js --update-only"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "node-fetch": "^3.3.2",
+    "@vercel/kv": "^1.0.1",
+    "netlify-lambda": "^2.0.16"
+  }
+}
