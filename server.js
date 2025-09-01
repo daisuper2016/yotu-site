@@ -1,10 +1,10 @@
-// File: server.js (ĐÃ CẬP NHẬT CHO VERCEL)
+// File: server.js (PHIÊN BẢN GỐC CHO RENDER)
 import express from 'express';
 import 'dotenv/config';
 import fetch from 'node-fetch';
+import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { kv } from '@vercel/kv'; // THAY ĐỔI: Import Vercel KV
 
 // --- CẤU HÌNH ---
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -19,10 +19,8 @@ const YT_VIDEOS_URL = "https://www.googleapis.com/youtube/v3/videos";
 const YT_PLAYLISTS_URL = "https://www.googleapis.com/youtube/v3/playlists";
 
 const PUBLIC_DIR = path.join(__dirname, 'public');
-
-// THAY ĐỔI: Không cần đường dẫn đến file JSON nữa
-// const CATALOG_PATH = path.join(PUBLIC_DIR, "catalog.json");
-// const PLAYLISTS_PATH = path.join(PUBLIC_DIR, "playlists.json");
+const CATALOG_PATH = path.join(PUBLIC_DIR, "catalog.json");
+const PLAYLISTS_PATH = path.join(PUBLIC_DIR, "playlists.json");
 
 const chunk = (arr, size) => { const out=[]; for(let i=0;i<arr.length;i+=size) out.push(arr.slice(i,i+size)); return out; };
 
@@ -31,11 +29,11 @@ async function updateData() {
     try {
         console.log("Bắt đầu cập nhật dữ liệu...");
 
-        // --- Lấy Uploads Playlist ID ---
+        // Lấy Uploads Playlist ID
         const channelData = await fetch(`${YT_CHANNELS_URL}?part=contentDetails&id=${CHANNEL_ID}&key=${API_KEY}`).then(res => res.json());
         const uploadsPlaylistId = channelData.items[0].contentDetails.relatedPlaylists.uploads;
 
-        // --- Lấy toàn bộ Video IDs từ playlist Uploads ---
+        // Lấy toàn bộ Video IDs
         let allVideoIds = [];
         let nextPageToken = '';
         do {
@@ -45,23 +43,20 @@ async function updateData() {
         } while (nextPageToken);
         console.log(`Tìm thấy ${allVideoIds.length} video ID.`);
 
-        // --- Lấy chi tiết và thống kê cho từng Video (theo chunk 50) ---
+        // Lấy chi tiết Videos
         const videoIdChunks = chunk(allVideoIds, 50);
         let allVideos = [];
         for (const idChunk of videoIdChunks) {
             const videoDetailsData = await fetch(`${YT_VIDEOS_URL}?part=snippet,statistics&id=${idChunk.join(',')}&key=${API_KEY}`).then(res => res.json());
             allVideos.push(...videoDetailsData.items);
         }
-        // Sắp xếp video theo ngày đăng mới nhất
         allVideos.sort((a, b) => new Date(b.snippet.publishedAt) - new Date(a.snippet.publishedAt));
 
-        // THAY ĐỔI: Lưu dữ liệu vào Vercel KV thay vì ghi file
-        console.log(`✅ Cập nhật ${allVideos.length} videos...`);
-        await kv.set('catalog', allVideos);
-        console.log('Lưu catalog vào Vercel KV thành công.');
+        // Ghi file catalog.json
+        await fs.writeFile(CATALOG_PATH, JSON.stringify(allVideos, null, 2));
+        console.log(`✅ Cập nhật và lưu ${allVideos.length} videos vào catalog.json thành công.`);
 
-
-        // --- Lấy toàn bộ Playlists của kênh ---
+        // Lấy toàn bộ Playlists
         let allPlaylists = [];
         nextPageToken = '';
         do {
@@ -69,11 +64,10 @@ async function updateData() {
             allPlaylists.push(...playlistsData.items);
             nextPageToken = playlistsData.nextPageToken;
         } while (nextPageToken);
-
-        // THAY ĐỔI: Lưu dữ liệu vào Vercel KV thay vì ghi file
-        console.log(`✅ Cập nhật ${allPlaylists.length} playlists...`);
-        await kv.set('playlists', allPlaylists);
-        console.log('Lưu playlists vào Vercel KV thành công.');
+        
+        // Ghi file playlists.json
+        await fs.writeFile(PLAYLISTS_PATH, JSON.stringify(allPlaylists, null, 2));
+        console.log(`✅ Cập nhật và lưu ${allPlaylists.length} playlists vào playlists.json thành công.`);
 
         console.log("✅ Cập nhật dữ liệu hoàn tất!");
     } catch (error) {
@@ -81,60 +75,20 @@ async function updateData() {
     }
 }
 
-// --- API ENDPOINTS CHO FRONTEND ---
-// THÊM MỚI: API để frontend lấy danh sách video
-app.get('/api/catalog', async (req, res) => {
-    try {
-        const catalog = await kv.get('catalog');
-        res.setHeader('Cache-Control', 's-maxage=3600, stale-while-revalidate'); // Cache 1 giờ
-        res.json(catalog || []);
-    } catch (error) {
-        res.status(500).json({ error: 'Failed to fetch catalog' });
-    }
-});
-
-// THÊM MỚI: API để frontend lấy danh sách playlist
-app.get('/api/playlists', async (req, res) => {
-    try {
-        const playlists = await kv.get('playlists');
-        res.setHeader('Cache-Control', 's-maxage=3600, stale-while-revalidate'); // Cache 1 giờ
-        res.json(playlists || []);
-    } catch (error) {
-        res.status(500).json({ error: 'Failed to fetch playlists' });
-    }
-});
-
-// THÊM MỚI: API để Cron Job kích hoạt việc cập nhật
-app.get('/api/update', async (req, res) => {
-    // Thêm một lớp bảo mật đơn giản để chỉ Vercel Cron Job có thể gọi
-    const cronSecret = process.env.CRON_SECRET;
-    if (req.headers['authorization'] !== `Bearer ${cronSecret}`) {
-        return res.status(401).send('Unauthorized');
-    }
-    
-    console.log("Nhận yêu cầu cập nhật từ Cron Job...");
-    await updateData(); // Không cần đợi hoàn thành
-    res.status(200).send('Data update process started.');
-});
-
-
 // --- LOGIC CHẠY ---
 const shouldUpdateOnly = process.argv.includes('--update-only');
 
 if (shouldUpdateOnly) {
-    updateData().then(() => process.exit(0));
+  updateData().then(() => process.exit(0));
 } else {
-    app.use(express.static(PUBLIC_DIR)); // Vẫn phục vụ các file tĩnh như index.html, style.css...
-    
-    // THAY ĐỔI: Bỏ setInterval vì Vercel sẽ dùng Cron Job
-    // setInterval(updateData, 60 * 60 * 1000);
+  app.use(express.static(PUBLIC_DIR));
 
-    // Chạy cập nhật lần đầu khi server khởi động (đối với môi trường local)
-    if (process.env.NODE_ENV !== 'production') {
-        updateData();
-    }
+  // Chạy cập nhật mỗi giờ
+  setInterval(updateData, 60 * 60 * 1000); 
+  // Chạy cập nhật lần đầu ngay khi server khởi động
+  updateData(); 
 
-    app.listen(PORT, () => {
-        console.log(`✅ Server đang chạy tại http://localhost:${PORT}`);
-    });
+  app.listen(PORT, () => {
+    console.log(`✅ Server đang chạy tại http://localhost:${PORT}`);
+  });
 }
